@@ -10,6 +10,7 @@ import recommendationsRoutes from "./routes/recommendations.js";
 import demoRoutes from "./routes/demo.js";
 
 const app = express();
+app.set("trust proxy", 1);
 
 app.use(
   cors({
