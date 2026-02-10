@@ -1,10 +1,15 @@
 import express from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
+import mongoose from "mongoose";
+import { config } from "./config/env.js";
+import { seedDatabase } from "./utils/seed.js";
 import authRoutes from "./routes/auth.js";
+import overviewRoutes from "./routes/overview.js";
+import recommendationsRoutes from "./routes/recommendations.js";
+import demoRoutes from "./routes/demo.js";
 
 const app = express();
-const PORT = 3000;
 
 app.use(
   cors({
@@ -16,51 +21,24 @@ app.use(express.json());
 app.use(cookieParser());
 
 app.use("/auth", authRoutes);
+app.use("/api/overview", overviewRoutes);
+app.use("/api/recommendations", recommendationsRoutes);
+app.use("/api/demo-request", demoRoutes);
 
-// Mock data
-const overviewData = {
-  criticalAlerts: {
-    count: 3,
-    subtitle: "Requires immediate attention",
-    affectedParameters: [
-      { id: 1, name: "Temperature Control", checked: false },
-      { id: 2, name: "Pressure System", checked: false },
-      { id: 3, name: "CD's", checked: false },
-    ],
-  },
-  warnings: {
-    count: 3,
-    subtitle: "Monitoring required",
-    affectedParameters: [
-      { id: 1, name: "Coolant Flow", checked: false },
-      { id: 2, name: "Humidity Level", checked: false },
-      { id: 3, name: "Material Feed", checked: false },
-    ],
-  },
-};
-
-const recommendationsData = [
-  { id: 1, title: "Temperature Control Frequency", impact: "High Impact" },
-  { id: 2, title: "Calibration Procedure", impact: "High Impact" },
-  { id: 3, title: "Material Feed Rate", impact: "Medium Impact" },
-  { id: 4, title: "Operator Training", impact: "Medium Impact" },
-  { id: 5, title: "Humidity Control", impact: "Low Impact" },
-];
-
-// API Routes
-app.get("/api/overview", (req, res) => {
-  // Simulate network delay
-  setTimeout(() => {
-    res.json(overviewData);
-  }, 300);
+app.get("/health", (_req, res) => {
+  res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
-app.get("/api/recommendations", (req, res) => {
-  setTimeout(() => {
-    res.json(recommendationsData);
-  }, 300);
-});
+mongoose
+  .connect(config.MONGO_URI)
+  .then(async () => {
+    console.log("Connected to MongoDB");
+    await seedDatabase();
+  })
+  .catch((err) => {
+    console.warn("MongoDB not available, using mock data:", err.message);
+  });
 
-app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
+app.listen(config.PORT, () => {
+  console.log(`Server running on http://localhost:${config.PORT}`);
 });
