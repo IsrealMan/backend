@@ -28,13 +28,18 @@ export function verifyRefreshToken(token) {
 export function setRefreshCookie(res, token) {
   res.cookie('refreshToken', token, {
     httpOnly: true,
-    secure: config.NODE_ENV === 'production',
-    sameSite: 'strict',
+    secure: true,
+    sameSite: 'none',
     maxAge: 14 * 24 * 60 * 60 * 1000,
     path: '/auth'
   });
 }
 
 export function clearRefreshCookie(res) {
-  res.clearCookie('refreshToken', { path: '/auth' });
+  res.clearCookie('refreshToken', {
+    httpOnly: true,
+    secure: true,
+    sameSite: 'none',
+    path: '/auth'
+  });
 }
