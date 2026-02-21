@@ -1,1 +1,9 @@
+node_modules/
 node_modules
+
+# Env files — never commit real credentials or secrets
+.env
+.env.local
+.env.production
+
+# .env.example is intentionally committed — it is a safe template

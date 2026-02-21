@@ -1,7 +1,8 @@
 import { WebSocketServer } from 'ws';
 import { verifyAccessToken } from './tokens.js';
 
-const orgRooms = new Map();
+const orgRooms  = new Map();
+const userRooms = new Map();  // userId → Set<WebSocket>
 
 export function setupWebSocket(server) {
   const wss = new WebSocketServer({ server });
@@ -23,10 +24,14 @@ export function setupWebSocket(server) {
 
       // Join org room
       if (ws.orgId) {
-        if (!orgRooms.has(ws.orgId)) {
-          orgRooms.set(ws.orgId, new Set());
-        }
+        if (!orgRooms.has(ws.orgId)) orgRooms.set(ws.orgId, new Set());
         orgRooms.get(ws.orgId).add(ws);
+      }
+
+      // Join user room (for per-user pushes like notifications:count)
+      if (ws.userId) {
+        if (!userRooms.has(ws.userId)) userRooms.set(ws.userId, new Set());
+        userRooms.get(ws.userId).add(ws);
       }
 
       ws.send(JSON.stringify({ type: 'connected', userId: ws.userId }));
@@ -43,9 +48,11 @@ export function setupWebSocket(server) {
       ws.on('close', () => {
         if (ws.orgId && orgRooms.has(ws.orgId)) {
           orgRooms.get(ws.orgId).delete(ws);
-          if (orgRooms.get(ws.orgId).size === 0) {
-            orgRooms.delete(ws.orgId);
-          }
+          if (orgRooms.get(ws.orgId).size === 0) orgRooms.delete(ws.orgId);
+        }
+        if (ws.userId && userRooms.has(ws.userId)) {
+          userRooms.get(ws.userId).delete(ws);
+          if (userRooms.get(ws.userId).size === 0) userRooms.delete(ws.userId);
         }
       });
 
@@ -79,4 +86,23 @@ export function broadcastToOrg(orgId, message) {
       }
     });
   }
+}
+
+export function broadcastToAll(message) {
+  const data = JSON.stringify(message);
+  orgRooms.forEach((clients) => {
+    clients.forEach((client) => {
+      if (client.readyState === 1) {
+        client.send(data);
+      }
+    });
+  });
+}
+
+export function sendToUser(userId, message) {
+  if (!userRooms.has(userId)) return;
+  const data = JSON.stringify(message);
+  userRooms.get(userId).forEach((client) => {
+    if (client.readyState === 1) client.send(data);
+  });
 }

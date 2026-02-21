@@ -1,5 +1,6 @@
 import Alert from "../models/Alert.js";
 import Recommendation from "../models/Recommendation.js";
+import { initDemoNotifications } from "../routes/notifications.js";
 
 const seedAlerts = [
   { name: "Temperature Control", severity: "critical" },
@@ -55,4 +56,7 @@ export async function seedDatabase() {
     await Recommendation.insertMany(seedRecommendations);
     console.log("Seeded recommendations collection");
   }
+
+  // Always re-initialise demo notifications (in-memory, resets on restart)
+  initDemoNotifications();
 }
