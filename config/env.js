@@ -1,6 +1,8 @@
 export const config = {
   PORT: process.env.PORT || 3000,
-  MONGO_URI: process.env.MONGO_URI || "mongodb://localhost:27017/predixa",
+  MONGO_URI:
+    process.env.MONGO_URI ||
+    "mongodb+srv://predixia_user:cql15kpH3LE8jxVb@cluster0.etehlhp.mongodb.net/predixa?retryWrites=true&w=majority",
   DATABASE_URL:
     process.env.DATABASE_URL ||
     "postgresql://israerl:Tzi3636@@127.0.0.1:5432/PredAI_QA", // PostgreSQL — PredAI_QA schema

@@ -25,21 +25,23 @@ export function verifyRefreshToken(token) {
   return jwt.verify(token, config.JWT_REFRESH_SECRET);
 }
 
+const isProd = config.NODE_ENV === 'production';
+
 export function setRefreshCookie(res, token) {
   res.cookie('refreshToken', token, {
     httpOnly: true,
-    secure: true,
-    sameSite: 'none',
-    maxAge: 14 * 24 * 60 * 60 * 1000,
-    path: '/auth'
+    secure:   isProd,
+    sameSite: isProd ? 'none' : 'lax',
+    maxAge:   14 * 24 * 60 * 60 * 1000,
+    path:     '/auth',
   });
 }
 
 export function clearRefreshCookie(res) {
   res.clearCookie('refreshToken', {
     httpOnly: true,
-    secure: true,
-    sameSite: 'none',
-    path: '/auth'
+    secure:   isProd,
+    sameSite: isProd ? 'none' : 'lax',
+    path:     '/auth',
   });
 }

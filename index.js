@@ -19,8 +19,9 @@ import qualityParametersRoutes from "./routes/quality-parameters.js";
 import machineHealthRoutes from "./routes/machine-health.js";
 import settingsRoutes from "./routes/settings.js";
 import productionMetricsRoutes from "./routes/production-metrics.js";
-import notificationsRoutes, { initDemoNotifications } from "./routes/notifications.js";
+import notificationsRoutes from "./routes/notifications.js";
 import rulesRoutes from "./routes/rules.js";
+import adminUsersRoutes from "./routes/admin/users.js";
 
 const app = express();
 const server = http.createServer(app);
@@ -75,6 +76,7 @@ app.use("/api/settings", settingsRoutes);
 app.use("/api/production-metrics", productionMetricsRoutes);
 app.use("/api/notifications", notificationsRoutes);
 app.use("/api/rules", rulesRoutes);
+app.use("/api/admin/users", adminUsersRoutes);
 
 // ── Health ────────────────────────────────────────────────────
 app.get("/health", (_req, res) => {
@@ -101,8 +103,7 @@ mongoose
     await startChangeStream();
   })
   .catch((err) => {
-    console.warn("MongoDB not available, using mock data:", err.message);
-    initDemoNotifications(); // seed demo notifications when DB is unavailable
+    console.warn("MongoDB connection failed:", err.message);
   });
 
 // ── Start ─────────────────────────────────────────────────────

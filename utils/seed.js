@@ -1,6 +1,8 @@
+import argon2 from "argon2";
 import Alert from "../models/Alert.js";
 import Recommendation from "../models/Recommendation.js";
-import { initDemoNotifications } from "../routes/notifications.js";
+import Notification from "../models/Notification.js";
+import User from "../models/User.js";
 
 const seedAlerts = [
   { name: "Temperature Control", severity: "critical" },
@@ -44,19 +46,77 @@ const seedRecommendations = [
   },
 ];
 
+// ── Demo users ────────────────────────────────────────────────
+const seedUsers = [
+  { email: "admin@predixa.com", password: "admin123", name: "Demo Admin", role: "admin"  },
+  { email: "user@predixa.com",  password: "user1234", name: "Demo User",  role: "user"   },
+];
+
+// ── Seed notifications for a user (only if none exist yet) ────
+async function seedNotificationsFor(userId) {
+  const exists = await Notification.countDocuments({ userId: userId.toString() });
+  if (exists > 0) return;
+
+  await Notification.insertMany([
+    {
+      userId:    userId.toString(),
+      title:     "Temperature Critical",
+      message:   "Machine A1 temperature exceeded 80°C",
+      type:      "critical",
+      read:      false,
+      createdAt: new Date(Date.now() - 5  * 60 * 1000),
+    },
+    {
+      userId:    userId.toString(),
+      title:     "Pressure Warning",
+      message:   "Pressure System approaching upper control limit",
+      type:      "warning",
+      read:      false,
+      createdAt: new Date(Date.now() - 20 * 60 * 1000),
+    },
+    {
+      userId:    userId.toString(),
+      title:     "Maintenance Due",
+      message:   "Machine B3 maintenance window in next 48 hours",
+      type:      "info",
+      read:      false,
+      createdAt: new Date(Date.now() - 60 * 60 * 1000),
+    },
+  ]);
+}
+
 export async function seedDatabase() {
+  // ── Alerts ───────────────────────────────────────────────────
   const alertCount = await Alert.countDocuments();
   if (alertCount === 0) {
     await Alert.insertMany(seedAlerts);
     console.log("Seeded alerts collection");
   }
 
+  // ── Recommendations ──────────────────────────────────────────
   const recCount = await Recommendation.countDocuments();
   if (recCount === 0) {
     await Recommendation.insertMany(seedRecommendations);
     console.log("Seeded recommendations collection");
   }
 
-  // Always re-initialise demo notifications (in-memory, resets on restart)
-  initDemoNotifications();
+  // ── Users ─────────────────────────────────────────────────────
+  for (const u of seedUsers) {
+    const existing = await User.findOne({ email: u.email });
+    if (!existing) {
+      const hash = await argon2.hash(u.password);
+      const created = await User.create({
+        email:    u.email,
+        password: hash,
+        name:     u.name,
+        role:     u.role,
+        active:   true,
+      });
+      console.log(`Seeded user: ${u.email} (${u.role})`);
+      await seedNotificationsFor(created._id);
+    } else {
+      // Ensure notifications exist for pre-existing seeded users
+      await seedNotificationsFor(existing._id);
+    }
+  }
 }

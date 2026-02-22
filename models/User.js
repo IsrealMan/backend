@@ -22,6 +22,7 @@ const userSchema = new mongoose.Schema({
   name: { type: String, required: true },
   role: { type: String, enum: ['user', 'admin', 'operator'], default: 'user' },
   orgId: { type: mongoose.Schema.Types.ObjectId, ref: 'Organization' },
+  active: { type: Boolean, default: true },
   refreshTokens: [{ token: String, expiresAt: Date }],
   settings: { type: settingsSchema, default: () => ({}) },
   createdAt: { type: Date, default: Date.now }
