@@ -3,6 +3,7 @@ import Alert from "../models/Alert.js";
 import Recommendation from "../models/Recommendation.js";
 import Notification from "../models/Notification.js";
 import User from "../models/User.js";
+import LandingKey from "../models/LandingKey.js";
 
 const seedAlerts = [
   { name: "Temperature Control", severity: "critical" },
@@ -85,7 +86,49 @@ async function seedNotificationsFor(userId) {
   ]);
 }
 
+// ── Landing page default translations (English) ───────────────
+const landingKeysEn = [
+  // hero
+  { key: 'hero.badge',    section: 'hero',     value: 'AI-Powered Predictive Maintenance for Manufacturing' },
+  { key: 'hero.title',    section: 'hero',     value: 'PredixaAI enables manufacturers to predict and prevent unexpected downtime' },
+  { key: 'hero.subtitle', section: 'hero',     value: 'Transform your manufacturing operations with AI that sees problems before they happen — saving millions in lost production.' },
+  { key: 'hero.cta_primary',   section: 'hero', value: 'Request a Demo' },
+  { key: 'hero.cta_secondary', section: 'hero', value: 'Customer Login' },
+  // problem
+  { key: 'problem.badge', section: 'problem',  value: 'The Problem' },
+  { key: 'problem.title', section: 'problem',  value: 'The Hidden Cost of Downtime' },
+  { key: 'problem.body',  section: 'problem',  value: "Unplanned downtime costs the world's top 500 companies $1.4 trillion annually — over 11% of total revenue." },
+  // solution
+  { key: 'solution.badge', section: 'solution', value: 'The Solution' },
+  { key: 'solution.title', section: 'solution', value: 'AI That Prevents Downtime' },
+  { key: 'solution.body',  section: 'solution', value: 'PredixaAI is an AI-driven platform that transforms manufacturing operations by proactively predicting and preventing process anomalies that cause downtime. Our platform learns from your production data in real time, identifying patterns invisible to human operators, and delivers actionable insights before issues escalate.' },
+  // capabilities
+  { key: 'capabilities.badge', section: 'features', value: 'Platform' },
+  { key: 'capabilities.title', section: 'features', value: 'Capabilities' },
+  // benefits
+  { key: 'benefits.badge', section: 'features', value: 'Why PredixaAI' },
+  { key: 'benefits.title', section: 'features', value: 'Benefits' },
+  // cta
+  { key: 'cta.title',    section: 'cta', value: 'Ready to eliminate unplanned downtime?' },
+  { key: 'cta.subtitle', section: 'cta', value: 'Join leading manufacturers who trust PredixaAI to keep their operations running — and their revenue growing.' },
+  { key: 'cta.primary',   section: 'cta', value: 'Request a Demo' },
+  { key: 'cta.secondary', section: 'cta', value: 'Customer Login' },
+  // footer
+  { key: 'footer.tagline', section: 'footer', value: 'AI-driven predictive maintenance for modern manufacturers. Predict. Prevent. Prosper.' },
+  { key: 'footer.copyright', section: 'footer', value: 'All rights reserved.' },
+  // nav
+  { key: 'nav.login', section: 'nav', value: 'Login' },
+  { key: 'nav.cta',   section: 'nav', value: 'Request a Demo' },
+];
+
 export async function seedDatabase() {
+  // ── Landing page localization keys ────────────────────────────
+  const keyCount = await LandingKey.countDocuments({ page: 'landing', language: 'en' });
+  if (keyCount === 0) {
+    const docs = landingKeysEn.map(k => ({ ...k, page: 'landing', language: 'en', status: 'active' }));
+    await LandingKey.insertMany(docs, { ordered: false }).catch(() => {});
+    console.log("Seeded landing page localization keys (en)");
+  }
   // ── Alerts ───────────────────────────────────────────────────
   const alertCount = await Alert.countDocuments();
   if (alertCount === 0) {

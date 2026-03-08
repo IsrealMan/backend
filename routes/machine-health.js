@@ -1,72 +1,23 @@
 /**
- * GET /api/machine-health?machineId=&range=6h|12h|24h
+ * GET /api/machine-health?machineId=<name|id>&range=6h|12h|24h
  *
- * 3-tier strategy:
- *   Tier 1 — PostgreSQL (predi_qc schema)
- *   Tier 2 — MongoDB   (MachineReading collection, if available)
- *   Tier 3 — Mock      (always available)
+ * Tier 1 — PostgreSQL (predi_qc schema)
+ *   machine_signal  → time-series readings (name, value_num, ts, unit)
+ *   spec_limit      → lsl / usl per parameter
+ *   baseline        → lcl / ucl per parameter
  *
- * ── PostgreSQL schema (create once) ──────────────────────────────
+ * Tier 2 — Mock (always available)
  *
- * CREATE TABLE IF NOT EXISTS machine_parameter (
- *   id           SERIAL PRIMARY KEY,
- *   machine_id   TEXT    NOT NULL DEFAULT 'default',
- *   name         TEXT    NOT NULL,          -- e.g. 'Temperature'
- *   unit         TEXT    NOT NULL DEFAULT '',
- *   lsl          NUMERIC,                   -- lower spec limit
- *   usl          NUMERIC,                   -- upper spec limit
- *   lcl          NUMERIC,                   -- lower control limit
- *   ucl          NUMERIC                    -- upper control limit
- * );
- *
- * CREATE TABLE IF NOT EXISTS machine_reading (
- *   id             BIGSERIAL PRIMARY KEY,
- *   parameter_id   INT       NOT NULL REFERENCES machine_parameter(id),
- *   value          NUMERIC   NOT NULL,
- *   measured_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
- * );
- * CREATE INDEX ON machine_reading (parameter_id, measured_at DESC);
- *
- * ── Example SELECT ────────────────────────────────────────────────
- *
- * WITH recent AS (
- *   SELECT parameter_id,
- *          value,
- *          measured_at,
- *          ROW_NUMBER() OVER (PARTITION BY parameter_id ORDER BY measured_at DESC) AS rn
- *   FROM   machine_reading
- *   WHERE  measured_at > NOW() - INTERVAL '6 hours'
- * ),
- * latest AS (SELECT parameter_id, value AS current_value FROM recent WHERE rn = 1),
- * prev   AS (SELECT parameter_id, value AS prev_value    FROM recent WHERE rn = 2)
- * SELECT mp.id::text,
- *        mp.name AS parameter,
- *        mp.unit,
- *        mp.lsl, mp.usl,
- *        l.current_value AS "currentValue",
- *        ROUND(((l.current_value - p.prev_value) / NULLIF(p.prev_value, 0)) * 100, 2) AS "percentChange",
- *        json_agg(json_build_object('timestamp', r.measured_at, 'value', r.value)
- *                 ORDER BY r.measured_at) AS trend
- * FROM   machine_parameter mp
- * JOIN   latest l   ON l.parameter_id = mp.id
- * JOIN   prev   p   ON p.parameter_id = mp.id
- * JOIN   recent r   ON r.parameter_id = mp.id
- * WHERE  mp.machine_id = $1
- * GROUP  BY mp.id, mp.name, mp.unit, mp.lsl, mp.usl, l.current_value, p.prev_value;
+ * machineId accepts either the machine name (e.g. "Optical-01")
+ * or a numeric machine_id.
  */
 
 import { Router } from "express";
-import mongoose from "mongoose";
 import { query as pgQuery, isConnected as pgConnected } from "../db/pool.js";
 
 const router = Router();
 
 // ── Helpers ────────────────────────────────────────────────────
-function pct(current, prev) {
-  if (!prev || prev === 0) return 0;
-  return parseFloat(((current - prev) / Math.abs(prev) * 100).toFixed(2));
-}
-
 function deriveStatus(value, lsl, usl, lcl, ucl) {
   if (value === null || value === undefined) return "normal";
   if (lsl !== null && value < lsl) return "critical";
@@ -79,7 +30,7 @@ function deriveStatus(value, lsl, usl, lcl, ucl) {
 function buildTrend(hours = 6, baseValue, amplitude = 8) {
   const points = [];
   const now    = Date.now();
-  const step   = (hours * 60 * 60 * 1000) / 12;   // 12 data points
+  const step   = (hours * 60 * 60 * 1000) / 12;
   for (let i = 12; i >= 0; i--) {
     const t   = new Date(now - i * step);
     const val = parseFloat((baseValue + (Math.random() - 0.5) * amplitude).toFixed(1));
@@ -88,7 +39,7 @@ function buildTrend(hours = 6, baseValue, amplitude = 8) {
   return points;
 }
 
-// ── Tier 3: mock ───────────────────────────────────────────────
+// ── Tier 2: mock ───────────────────────────────────────────────
 function getMock(rangeH = 6) {
   return [
     {
@@ -116,41 +67,78 @@ function getMock(rangeH = 6) {
 }
 
 // ── Tier 1: PostgreSQL ─────────────────────────────────────────
-async function fromPostgres(machineId = "default", rangeH = 6) {
+async function fromPostgres(machineIdParam = "default", rangeH = 6) {
+  // Resolve machine_id from name or numeric id
+  const isNumeric = /^\d+$/.test(String(machineIdParam));
+  const machineRes = await pgQuery(
+    isNumeric
+      ? `SELECT machine_id FROM machine WHERE machine_id = $1`
+      : `SELECT machine_id FROM machine WHERE name = $1`,
+    [machineIdParam]
+  );
+  if (!machineRes.rows.length) return null;
+  const machineId = machineRes.rows[0].machine_id;
+
   const { rows } = await pgQuery(`
-    WITH windowed AS (
-      SELECT parameter_id, value, measured_at,
-             ROW_NUMBER() OVER (PARTITION BY parameter_id ORDER BY measured_at DESC) AS rn
-      FROM   machine_reading
-      WHERE  measured_at > NOW() - ($2 || ' hours')::INTERVAL
+    WITH signals AS (
+      SELECT
+        name,
+        value_num,
+        ts,
+        unit,
+        ROW_NUMBER() OVER (PARTITION BY name ORDER BY ts DESC) AS rn
+      FROM machine_signal
+      WHERE machine_id = $1
+        AND ts >= NOW() - ($2 || ' hours')::INTERVAL
     ),
-    latest AS (SELECT parameter_id, value AS current_value FROM windowed WHERE rn = 1),
-    prev   AS (SELECT parameter_id, value AS prev_value    FROM windowed WHERE rn = 2)
-    SELECT  mp.id::text,
-            mp.name          AS parameter,
-            mp.unit,
-            mp.lsl, mp.usl, mp.lcl, mp.ucl,
-            l.current_value  AS "currentValue",
-            ROUND(((l.current_value - p.prev_value) / NULLIF(ABS(p.prev_value), 0)) * 100, 2)
-                             AS "percentChange",
-            COALESCE(
-              json_agg(json_build_object('timestamp', w.measured_at, 'value', w.value)
-                       ORDER BY w.measured_at) FILTER (WHERE w.measured_at IS NOT NULL),
-              '[]'
-            )                AS trend
-    FROM   machine_parameter mp
-    JOIN   latest l  ON l.parameter_id = mp.id
-    JOIN   prev   p  ON p.parameter_id = mp.id
-    JOIN   windowed w ON w.parameter_id = mp.id
-    WHERE  mp.machine_id = $1
-    GROUP  BY mp.id, mp.name, mp.unit, mp.lsl, mp.usl, mp.lcl, mp.ucl,
-              l.current_value, p.prev_value
-    ORDER  BY mp.id
+    latest AS (SELECT name, value_num AS current_value, unit FROM signals WHERE rn = 1),
+    prev   AS (SELECT name, value_num AS prev_value           FROM signals WHERE rn = 2)
+    SELECT
+      l.name                                                        AS parameter,
+      l.unit,
+      l.current_value                                               AS "currentValue",
+      ROUND(
+        ((l.current_value - p.prev_value)
+          / NULLIF(ABS(p.prev_value), 0)) * 100, 2
+      )                                                             AS "percentChange",
+      sl.lsl, sl.usl,
+      b.lcl,  b.ucl,
+      COALESCE(
+        json_agg(
+          json_build_object('timestamp', s.ts, 'value', s.value_num)
+          ORDER BY s.ts
+        ) FILTER (WHERE s.ts IS NOT NULL),
+        '[]'::json
+      )                                                             AS trend
+    FROM   latest l
+    JOIN   prev   p  ON p.name = l.name
+    JOIN   signals s ON s.name = l.name
+    LEFT JOIN spec_limit sl
+           ON sl.parameter_name = l.name
+          AND (sl.machine_id = $1 OR sl.machine_id IS NULL)
+          AND sl.effective_to IS NULL
+    LEFT JOIN baseline b
+           ON b.parameter_name = l.name
+          AND (b.machine_id = $1 OR b.machine_id IS NULL)
+    GROUP BY l.name, l.unit, l.current_value, p.prev_value,
+             sl.lsl, sl.usl, b.lcl, b.ucl
+    ORDER BY l.name
   `, [machineId, rangeH]);
 
-  return rows.map(r => ({
-    ...r,
-    status: deriveStatus(r.currentValue, r.lsl, r.usl, r.lcl, r.ucl),
+  if (!rows.length) return null;
+
+  return rows.map((r, i) => ({
+    id:             String(i + 1),
+    parameter:      r.parameter,
+    unit:           r.unit ?? "",
+    currentValue:   parseFloat(r.currentValue),
+    percentChange:  parseFloat(r.percentChange ?? 0),
+    lsl:            r.lsl   != null ? parseFloat(r.lsl)  : null,
+    usl:            r.usl   != null ? parseFloat(r.usl)  : null,
+    lcl:            r.lcl   != null ? parseFloat(r.lcl)  : null,
+    ucl:            r.ucl   != null ? parseFloat(r.ucl)  : null,
+    status:         deriveStatus(r.currentValue, r.lsl, r.usl, r.lcl, r.ucl),
+    trend:          typeof r.trend === "string" ? JSON.parse(r.trend) : r.trend,
   }));
 }
 
@@ -162,13 +150,12 @@ router.get("/", async (req, res) => {
   if (pgConnected()) {
     try {
       const data = await fromPostgres(machineId, rangeH);
-      if (data.length > 0) return res.json(data);
+      if (data && data.length > 0) return res.json(data);
     } catch (err) {
       console.warn("[machine-health] PG failed, falling back:", err.message);
     }
   }
 
-  // Mongo tier skipped (time-series data better suited to PG/TimescaleDB)
   res.json(getMock(rangeH));
 });
 

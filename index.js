@@ -6,7 +6,6 @@ import cookieParser from "cookie-parser";
 import rateLimit from "express-rate-limit";
 import mongoose from "mongoose";
 import { config } from "./config/env.js";
-import { seedDatabase } from "./utils/seed.js";
 import { setupWebSocket } from "./utils/websocket.js";
 import { startChangeStream, stopChangeStream } from "./workers/changeStream.js";
 import { disconnectPg } from "./db/pool.js";
@@ -21,7 +20,12 @@ import settingsRoutes from "./routes/settings.js";
 import productionMetricsRoutes from "./routes/production-metrics.js";
 import notificationsRoutes from "./routes/notifications.js";
 import rulesRoutes from "./routes/rules.js";
+import lotsRoutes from "./routes/lots.js";
+import maintenanceRoutes from "./routes/maintenance.js";
+import cdMeasurementsRoutes from "./routes/cd-measurements.js";
 import adminUsersRoutes from "./routes/admin/users.js";
+import landingKeysRoutes from "./routes/admin/landing-keys.js";
+import localizationRoutes from "./routes/localization.js";
 
 const app = express();
 const server = http.createServer(app);
@@ -76,7 +80,12 @@ app.use("/api/settings", settingsRoutes);
 app.use("/api/production-metrics", productionMetricsRoutes);
 app.use("/api/notifications", notificationsRoutes);
 app.use("/api/rules", rulesRoutes);
+app.use("/api/lots", lotsRoutes);
+app.use("/api/maintenance", maintenanceRoutes);
+app.use("/api/cd-measurements", cdMeasurementsRoutes);
 app.use("/api/admin/users", adminUsersRoutes);
+app.use("/api/admin/landing-keys", landingKeysRoutes);
+app.use("/api/localization", localizationRoutes);
 
 // ── Health ────────────────────────────────────────────────────
 app.get("/health", (_req, res) => {
@@ -99,7 +108,6 @@ mongoose
   .connect(config.MONGO_URI)
   .then(async () => {
     console.log("Connected to MongoDB");
-    await seedDatabase();
     await startChangeStream();
   })
   .catch((err) => {
